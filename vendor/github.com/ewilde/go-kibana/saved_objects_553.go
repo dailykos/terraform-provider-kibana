@@ -58,7 +58,7 @@ func (api *savedObjectsClient553) GetByType(request *SavedObjectRequest) (*Saved
 		savedObjects = append(savedObjects, &SavedObject{
 			Type:       item.Type,
 			Id:         item.Id,
-			Version:    version,
+			Version:    string(version),
 			Attributes: item.Source,
 		})
 	}
