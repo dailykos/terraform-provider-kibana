@@ -52,7 +52,7 @@ func (api *searchClient553) Create(request *CreateSearchRequest) (*Search, error
 
 	return &Search{
 		Id:         createResponse.Id,
-		Version:    createResponse.Version,
+		Version:    string(createResponse.Version),
 		Attributes: request.Attributes,
 		Type:       createResponse.Type,
 	}, nil
@@ -81,7 +81,7 @@ func (api *searchClient553) Update(id string, request *UpdateSearchRequest) (*Se
 
 	return &Search{
 		Id:         id,
-		Version:    createResponse.Version,
+		Version:    string(createResponse.Version),
 		Attributes: request.Attributes,
 		Type:       createResponse.Type,
 	}, nil
@@ -113,7 +113,7 @@ func (api *searchClient553) GetById(id string) (*Search, error) {
 
 	return &Search{
 		Id:         createResponse.Id,
-		Version:    createResponse.Version,
+		Version:    string(createResponse.Version),
 		Type:       createResponse.Type,
 		Attributes: createResponse.Source,
 	}, nil

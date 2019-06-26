@@ -35,7 +35,7 @@ type UpdateSearchRequest struct {
 type Search struct {
 	Id         string            `json:"id"`
 	Type       string            `json:"type"`
-	Version    int               `json:"version"`
+	Version    string            `json:"version"`
 	Attributes *SearchAttributes `json:"attributes"`
 }
 
