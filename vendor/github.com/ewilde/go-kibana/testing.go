@@ -1,11 +1,13 @@
 package kibana
 
 import (
-	"gopkg.in/ory-am/dockertest.v3"
 	"log"
 	"os"
 	"strings"
 	"testing"
+
+	"github.com/ory/dockertest"
+	"github.com/parnurzeal/gorequest"
 )
 
 type testContext struct {
@@ -23,6 +25,10 @@ var authForContainerVersion = map[string]map[KibanaType]AuthenticationHandler{
 		KibanaTypeVanilla: &BasicAuthenticationHandler{"elastic", "changeme"},
 		KibanaTypeLogzio:  createLogzAuthenticationHandler(),
 	},
+	DefaultLogzioVersion: {
+		KibanaTypeLogzio:  createLogzAuthenticationHandler(),
+		KibanaTypeVanilla: &NoAuthenticationHandler{},
+	},
 	DefaultKibanaVersion6: {KibanaTypeVanilla: &NoAuthenticationHandler{}},
 }
 
@@ -30,6 +36,14 @@ func getAuthForContainerVersion(version string, kibanaType KibanaType) Authentic
 	handler, ok := authForContainerVersion[version]
 	if !ok {
 		handler = authForContainerVersion[DefaultKibanaVersion6]
+	}
+	_, useXpackSecurity := os.LookupEnv("USE_XPACK_SECURITY")
+	if useXpackSecurity {
+		return &BasicAuthenticationHandler{"elastic", "changeme"}
+	}
+
+	if kibanaType == KibanaTypeLogzio {
+		handler = authForContainerVersion[DefaultLogzioVersion]
 	}
 
 	return handler[kibanaType]
@@ -71,17 +85,6 @@ func DefaultTestKibanaClient() *KibanaClient {
 	return kibanaClient
 }
 
-func createLogzAuthenticationHandler() *LogzAuthenticationHandler {
-	return &LogzAuthenticationHandler{
-		Auth0Uri:  "https://logzio.auth0.com",
-		LogzUri:   "https://app-eu.logz.io",
-		ClientId:  os.Getenv(EnvLogzClientId),
-		UserName:  os.Getenv(EnvKibanaUserName),
-		Password:  os.Getenv(EnvKibanaPassword),
-		MfaSecret: os.Getenv(EnvLogzMfaSecret),
-	}
-}
-
 func startKibana(elkVersion string, client *KibanaClient) (*testContext, error) {
 	log.SetOutput(os.Stdout)
 
@@ -107,6 +110,25 @@ func startKibana(elkVersion string, client *KibanaClient) (*testContext, error) 
 		KibanaIndexId: index}, nil
 }
 
+func createLogzAuthenticationHandler() *LogzAuthenticationHandler {
+	agent := gorequest.New()
+	agent.Debug = os.Getenv(EnvKibanaDebug) != ""
+	uri := os.Getenv(EnvKibanaUri)
+	if uri == "" {
+		uri = "https://app-eu.logz.io"
+	}
+
+	handler := NewLogzAuthenticationHandler(agent)
+	handler.Auth0Uri = "https://logzio.auth0.com"
+	handler.LogzUri = uri
+	handler.ClientId = os.Getenv(EnvLogzClientId)
+	handler.UserName = os.Getenv(EnvKibanaUserName)
+	handler.Password = os.Getenv(EnvKibanaPassword)
+	handler.MfaSecret = os.Getenv(EnvLogzMfaSecret)
+
+	return handler
+}
+
 func stopKibana(testContext *testContext) {
 
 	for _, container := range testContext.containers {
@@ -120,4 +142,11 @@ func stopKibana(testContext *testContext) {
 
 func getContainerName(container *dockertest.Resource) string {
 	return strings.TrimPrefix(container.Container.Name, "/")
+}
+
+func skipIfNotXpackSecurity(t *testing.T) {
+	_, useXpackSecurity := os.LookupEnv("USE_XPACK_SECURITY")
+	if !useXpackSecurity {
+		t.Skip("Skipping testing as we don't have xpack security")
+	}
 }

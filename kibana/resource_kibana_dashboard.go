@@ -3,8 +3,8 @@ package kibana
 import (
 	"fmt"
 	"github.com/ewilde/go-kibana"
-	"github.com/hashicorp/terraform/helper/schema"
-	"github.com/hashicorp/terraform/helper/structure"
+	"github.com/hashicorp/terraform-plugin-sdk/helper/schema"
+	"github.com/hashicorp/terraform-plugin-sdk/helper/structure"
 	"log"
 )
 
@@ -74,9 +74,10 @@ func resourceKibanaDashboard() *schema.Resource {
 				Optional:    true,
 			},
 			"search_source_json": {
-				Type:        schema.TypeBool,
+				Type:        schema.TypeString,
 				Description: "Search source json",
 				Optional:    true,
+				Default:     "{}",
 				StateFunc: func(v interface{}) string {
 					json, _ := structure.NormalizeJsonString(v)
 					return json

@@ -4,10 +4,12 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
-	"github.com/fsouza/go-dockerclient"
-	"github.com/parnurzeal/gorequest"
-	"gopkg.in/ory-am/dockertest.v3"
 	"log"
+	"os"
+
+	dockertest "github.com/ory/dockertest"
+	dck "github.com/ory/dockertest/docker"
+	"github.com/parnurzeal/gorequest"
 )
 
 type elasticSearchContainer struct {
@@ -18,9 +20,17 @@ type elasticSearchContainer struct {
 }
 
 func newElasticSearchContainer(pool *dockertest.Pool, elasticSearchVersion string) (*elasticSearchContainer, error) {
+	_, useXpackSecurity := os.LookupEnv("USE_XPACK_SECURITY")
 
 	envVars := []string{
 		"discovery.type=single-node",
+	}
+
+	if useXpackSecurity {
+		envVars = append(envVars,
+			"ELASTIC_PASSWORD=changeme",
+			"xpack.security.enabled=true",
+		)
 	}
 
 	options := &dockertest.RunOptions{
@@ -45,14 +55,20 @@ func newElasticSearchContainer(pool *dockertest.Pool, elasticSearchVersion strin
 		}
 
 		if !container.State.Running {
-			logOptions := &docker.LogsOptions{Container: container.ID}
-			if err := pool.Client.Logs(*logOptions); err != nil {
+			var buf bytes.Buffer
+			//err = pool.Client.AttachToContainer(docker.AttachToContainerOptions{
+
+			options := dck.AttachToContainerOptions{
+				Container:    resource.Container.ID,
+				OutputStream: &buf,
+				Logs:         true,
+				Stdout:       true,
+				Stderr:       true,
+			}
+			err = pool.Client.AttachToContainer(options)
+			if err != nil {
 				return errors.New("Container is not running: " + container.State.StateString())
 			}
-
-			buf := new(bytes.Buffer)
-			logOptions.OutputStream.Write(buf.Bytes())
-
 			return errors.New("Container is not running: " + buf.String())
 		}
 

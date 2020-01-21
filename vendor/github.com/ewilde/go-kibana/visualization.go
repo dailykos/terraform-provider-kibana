@@ -3,7 +3,9 @@ package kibana
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/satori/go.uuid"
+
+	goversion "github.com/mcuadros/go-version"
+	uuid "github.com/satori/go.uuid"
 )
 
 type VisualizationClient interface {
@@ -14,33 +16,46 @@ type VisualizationClient interface {
 }
 
 type CreateVisualizationRequest struct {
-	Attributes *VisualizationAttributes `json:"attributes"`
+	Attributes *VisualizationAttributes   `json:"attributes"`
+	References []*VisualizationReferences `json:"references,omitempty"`
 }
 
 type UpdateVisualizationRequest struct {
-	Attributes *VisualizationAttributes `json:"attributes"`
+	Attributes *VisualizationAttributes   `json:"attributes"`
+	References []*VisualizationReferences `json:"references,omitempty"`
 }
 
 type Visualization struct {
-	Id         string                   `json:"id"`
-	Type       string                   `json:"type"`
-	Version    int                      `json:"version"`
-	Attributes *VisualizationAttributes `json:"attributes"`
+	Id         string                     `json:"id"`
+	Type       string                     `json:"type"`
+	Version    version                    `json:"version"`
+	Attributes *VisualizationAttributes   `json:"attributes"`
+	References []*VisualizationReferences `json:"references,omitempty"`
+}
+
+type VisualizationReferences struct {
+	Name string `json:"name"`
+	Type string `json:"type"`
+	Id   string `json:"id"`
 }
 
 type VisualizationAttributes struct {
-	Title              string `json:"title"`
-	Description        string `json:"description"`
-	Version            int    `json:"version"`
-	VisualizationState string `json:"visState"`
-	SavedSearchId      string `json:"savedSearchId"`
+	Title                 string                       `json:"title"`
+	Description           string                       `json:"description"`
+	Version               int                          `json:"version"`
+	VisualizationState    string                       `json:"visState"`
+	SavedSearchId         string                       `json:"savedSearchId,omitempty"`
+	SavedSearchRefName    string                       `json:"savedSearchRefName,omitempty"`
+	KibanaSavedObjectMeta *SearchKibanaSavedObjectMeta `json:"kibanaSavedObjectMeta"`
 }
 
 type VisualizationRequestBuilder struct {
-	title              string
-	description        string
-	visualizationState string
-	savedSearchId      string
+	title                 string
+	description           string
+	visualizationState    string
+	savedSearchId         string
+	savedSearchRefName    string
+	kibanaSavedObjectMeta *SearchKibanaSavedObjectMeta
 }
 
 type visualizationClient600 struct {
@@ -56,7 +71,7 @@ type visualizationClient553 struct {
 type visualizationReadResult553 struct {
 	Id      string                   `json:"_id"`
 	Type    string                   `json:"_type"`
-	Version int                      `json:"_version"`
+	Version version                  `json:"_version"`
 	Source  *VisualizationAttributes `json:"_source"`
 }
 
@@ -84,17 +99,48 @@ func (builder *VisualizationRequestBuilder) WithSavedSearchId(savedSearchId stri
 	return builder
 }
 
-func (builder *VisualizationRequestBuilder) Build() (*CreateVisualizationRequest, error) {
+func (builder *VisualizationRequestBuilder) WithSavedSearchRefName(savedSearchRefName string) *VisualizationRequestBuilder {
+	builder.savedSearchRefName = savedSearchRefName
+	return builder
+}
 
-	return &CreateVisualizationRequest{
-		Attributes: &VisualizationAttributes{
-			Title:              builder.title,
-			Description:        builder.description,
-			SavedSearchId:      builder.savedSearchId,
-			Version:            1,
-			VisualizationState: builder.visualizationState,
-		},
-	}, nil
+func (builder *VisualizationRequestBuilder) WithKibanaSavedObjectMeta(meta *SearchKibanaSavedObjectMeta) *VisualizationRequestBuilder {
+	builder.kibanaSavedObjectMeta = meta
+	return builder
+}
+
+func (builder *VisualizationRequestBuilder) Build(version string) (*CreateVisualizationRequest, error) {
+	if goversion.Compare(version, "7.0.0", "<") {
+		return &CreateVisualizationRequest{
+			Attributes: &VisualizationAttributes{
+				Title:                 builder.title,
+				Description:           builder.description,
+				SavedSearchId:         builder.savedSearchId,
+				Version:               1,
+				VisualizationState:    builder.visualizationState,
+				KibanaSavedObjectMeta: builder.kibanaSavedObjectMeta,
+			},
+		}, nil
+	} else {
+		return &CreateVisualizationRequest{
+			Attributes: &VisualizationAttributes{
+				Title:                 builder.title,
+				Description:           builder.description,
+				Version:               1,
+				VisualizationState:    builder.visualizationState,
+				KibanaSavedObjectMeta: builder.kibanaSavedObjectMeta,
+				SavedSearchRefName:    "search_1",
+			},
+			References: []*VisualizationReferences{
+				{
+					Name: "search_1",
+					Type: "search",
+					Id:   builder.savedSearchId,
+				},
+			},
+		}, nil
+
+	}
 }
 
 func (api *visualizationClient600) Create(request *CreateVisualizationRequest) (*Visualization, error) {
@@ -132,6 +178,9 @@ func (api *visualizationClient600) GetById(id string) (*Visualization, error) {
 	}
 
 	if response.StatusCode >= 300 {
+		if api.config.KibanaType == KibanaTypeLogzio && response.StatusCode >= 400 { // bug in their api reports missing visualization as bad request / server error
+			response.StatusCode = 404
+		}
 		return nil, NewError(response, body, "Could not fetch visualization")
 	}
 

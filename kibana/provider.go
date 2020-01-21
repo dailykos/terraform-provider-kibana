@@ -2,12 +2,17 @@ package kibana
 
 import (
 	"fmt"
-	"github.com/ewilde/go-kibana"
-	"github.com/hashicorp/terraform/helper/schema"
-	"github.com/hashicorp/terraform/terraform"
+	"github.com/hashicorp/terraform-plugin-sdk/terraform"
 	"log"
 	"os"
+	"sync"
+
+	"github.com/ewilde/go-kibana"
+	"github.com/hashicorp/terraform-plugin-sdk/helper/schema"
 )
+
+var once sync.Once
+var kibanaclient *kibana.KibanaClient
 
 func Provider() terraform.ResourceProvider {
 	return &schema.Provider{
@@ -51,7 +56,7 @@ func Provider() terraform.ResourceProvider {
 			"logzio_client_id": {
 				Type:        schema.TypeString,
 				Optional:    true,
-				DefaultFunc: envDefaultFuncWithDefault(kibana.EnvLogzClientId, ""),
+				DefaultFunc: envDefaultFuncWithDefault(kibana.EnvLogzClientId, kibana.DefaultLogzioClientId),
 				Description: "The logz.io client id used when connecting to logz.io",
 			},
 			"logzio_account_id": {
@@ -66,6 +71,12 @@ func Provider() terraform.ResourceProvider {
 				DefaultFunc: envDefaultFuncWithDefault(kibana.EnvLogzMfaSecret, ""),
 				Description: "The logz.io MFA secret if the account has it enabled.",
 			},
+			"kibana_insecure": {
+				Type:        schema.TypeBool,
+				Default:     false,
+				Optional:    true,
+				Description: "Disable SSL verification",
+			},
 		},
 
 		DataSourcesMap: map[string]*schema.Resource{
@@ -76,6 +87,8 @@ func Provider() terraform.ResourceProvider {
 			"kibana_search":        resourceKibanaSearch(),
 			"kibana_visualization": resourceKibanaVisualization(),
 			"kibana_dashboard":     resourceKibanaDashboard(),
+			"kibana_role":          resourceKibanaRole(),
+			"kibana_space":         resourceKibanaSpace(),
 		},
 
 		ConfigureFunc: providerConfigure,
@@ -111,22 +124,36 @@ func GetEnvVarOrDefaultBool(key string, defaultValue bool) bool {
 }
 
 func providerConfigure(d *schema.ResourceData) (interface{}, error) {
-	config := &kibana.Config{
-		ElasticSearchPath: d.Get("elastic_search_path").(string),
-		KibanaBaseUri:     d.Get("kibana_uri").(string),
-		KibanaType:        kibana.ParseKibanaType(d.Get("kibana_type").(string)),
-		KibanaVersion:     d.Get("kibana_version").(string),
+	var err error
+
+	once.Do(func() {
+		config := &kibana.Config{
+			ElasticSearchPath: d.Get("elastic_search_path").(string),
+			KibanaBaseUri:     d.Get("kibana_uri").(string),
+			KibanaType:        kibana.ParseKibanaType(d.Get("kibana_type").(string)),
+			KibanaVersion:     d.Get("kibana_version").(string),
+			Insecure:          d.Get("kibana_insecure").(bool),
+		}
+
+		client := kibana.NewClient(config)
+		client.SetAuth(authForContainerVersion[config.KibanaType](config, d))
+		client.Config.Debug = GetEnvVarOrDefaultBool("KIBANA_DEBUG", false)
+
+		if accountId, ok := d.GetOk("logzio_account_id"); ok && len(accountId.(string)) > 0 {
+			err = client.ChangeAccount(accountId.(string))
+			if err != nil {
+				return
+			}
+		}
+
+		kibanaclient = client
+	})
+
+	if err != nil {
+		return nil, err
 	}
 
-	client := kibana.NewClient(config)
-	client.SetAuth(authForContainerVersion[config.KibanaType](config, d))
-	client.Config.Debug = GetEnvVarOrDefaultBool("KIBANA_DEBUG", false)
-
-	if accountId, ok := d.GetOk("logzio_account_id"); ok && len(accountId.(string)) > 0 {
-		client.ChangeAccount(accountId.(string))
-	}
-
-	return client, nil
+	return kibanaclient, nil
 }
 
 var authForContainerVersion = map[kibana.KibanaType]func(config *kibana.Config, d *schema.ResourceData) kibana.AuthenticationHandler{

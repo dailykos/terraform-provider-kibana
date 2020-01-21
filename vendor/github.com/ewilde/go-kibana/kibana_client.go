@@ -1,12 +1,16 @@
 package kibana
 
 import (
+	"encoding/json"
 	"fmt"
-	"github.com/google/go-querystring/query"
+	"log"
 	"net/url"
 	"os"
 	"reflect"
+	"strconv"
 	"strings"
+
+	"github.com/google/go-querystring/query"
 )
 
 const EnvElasticSearchPath = "ELASTIC_SEARCH_PATH"
@@ -22,6 +26,9 @@ const EnvLogzMfaSecret = "LOGZ_MFA_SECRET"
 const DefaultKibanaUri = "http://localhost:5601"
 const DefaultElasticSearchPath = "/es_admin/.kibana"
 const DefaultKibanaVersion6 = "6.0.0"
+const DefaultKibanaVersion7 = "7.3.1"
+const DefaultLogzioVersion = "6.3.2"
+const DefaultLogzioClientId = "kydHH8LqsLR6D6d2dlHTpPEdf0Bztz4c"
 const DefaultKibanaVersion553 = "5.5.3"
 const DefaultKibanaVersion = DefaultKibanaVersion6
 const DefaultKibanaIndexId = "logstash-*"
@@ -50,6 +57,26 @@ func ParseKibanaType(value string) KibanaType {
 	return kibanaType
 }
 
+type version string
+
+func (v *version) UnmarshalJSON(data []byte) error {
+	var tmp int
+	err := json.Unmarshal(data, &tmp)
+	if err == nil {
+		*v = version(strconv.Itoa(tmp))
+		return nil
+	} else {
+		var tmp string
+		err = json.Unmarshal(data, &tmp)
+		if err != nil {
+			return err
+		} else {
+			*v = version(tmp)
+		}
+	}
+	return nil
+}
+
 type Config struct {
 	Debug             bool
 	DefaultIndexId    string
@@ -57,6 +84,7 @@ type Config struct {
 	KibanaBaseUri     string
 	KibanaVersion     string
 	KibanaType        KibanaType
+	Insecure          bool
 }
 
 type KibanaClient struct {
@@ -65,9 +93,9 @@ type KibanaClient struct {
 }
 
 type createResourceResult553 struct {
-	Id      string `json:"_id"`
-	Type    string `json:"_type"`
-	Version int    `json:"_version"`
+	Id      string  `json:"_id"`
+	Type    string  `json:"_type"`
+	Version version `json:"_version"`
 }
 
 var indexClientFromVersion = map[string]func(kibanaClient *KibanaClient) IndexPatternClient{
@@ -160,12 +188,43 @@ func getSavedObjectsClientFromVersion(version string, kibanaClient *KibanaClient
 	return savedObjectsClient(kibanaClient)
 }
 
+var roleClientFromVersion = map[string]func(kibanaClient *KibanaClient) RoleClient{
+	DefaultKibanaVersion6: func(kibanaClient *KibanaClient) RoleClient {
+		return &DefaultRoleClient{config: kibanaClient.Config, client: kibanaClient.client}
+	},
+}
+
+func getRoleClientFromVersion(version string, kibanaClient *KibanaClient) RoleClient {
+	savedObjectsClient, ok := roleClientFromVersion[version]
+	if !ok {
+		savedObjectsClient = roleClientFromVersion[DefaultKibanaVersion6]
+	}
+
+	return savedObjectsClient(kibanaClient)
+}
+
+var spaceClientFromVersion = map[string]func(kibanaClient *KibanaClient) SpaceClient{
+	DefaultKibanaVersion7: func(kibanaClient *KibanaClient) SpaceClient {
+		return &DefaultSpaceClient{config: kibanaClient.Config, client: kibanaClient.client}
+	},
+}
+
+func getSpaceClientFromVersion(version string, kibanaClient *KibanaClient) SpaceClient {
+	spaceClient, ok := spaceClientFromVersion[version]
+	if !ok {
+		spaceClient = spaceClientFromVersion[DefaultKibanaVersion7]
+	}
+
+	return spaceClient(kibanaClient)
+}
+
 func NewDefaultConfig() *Config {
 	config := &Config{
 		ElasticSearchPath: DefaultElasticSearchPath,
 		KibanaBaseUri:     DefaultKibanaUri,
 		KibanaVersion:     DefaultKibanaVersion,
 		KibanaType:        KibanaTypeVanilla,
+		Insecure:          false,
 	}
 
 	if value := os.Getenv(EnvElasticSearchPath); value != "" {
@@ -236,6 +295,19 @@ func (kibanaClient *KibanaClient) IndexPattern() IndexPatternClient {
 
 func (kibanaClient *KibanaClient) SavedObjects() SavedObjectsClient {
 	return getSavedObjectsClientFromVersion(kibanaClient.Config.KibanaVersion, kibanaClient)
+}
+
+func (kibanaClient *KibanaClient) Role() RoleClient {
+	return getRoleClientFromVersion(kibanaClient.Config.KibanaVersion, kibanaClient)
+}
+
+func (kibanaClient *KibanaClient) Space() SpaceClient {
+	return getSpaceClientFromVersion(kibanaClient.Config.KibanaVersion, kibanaClient)
+}
+
+func (kibanaClient *KibanaClient) SetLogger(logger *log.Logger) *KibanaClient {
+	kibanaClient.client.SetLogger(logger)
+	return kibanaClient
 }
 
 func (config *Config) BuildFullPath(format string, a ...interface{}) string {

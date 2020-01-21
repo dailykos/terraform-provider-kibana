@@ -3,8 +3,8 @@ package kibana
 import (
 	"fmt"
 	"github.com/ewilde/go-kibana"
-	"github.com/hashicorp/terraform/helper/resource"
-	"github.com/hashicorp/terraform/terraform"
+	"github.com/hashicorp/terraform-plugin-sdk/helper/resource"
+	"github.com/hashicorp/terraform-plugin-sdk/terraform"
 	"github.com/pkg/errors"
 	"strings"
 	"testing"
@@ -68,7 +68,7 @@ func testAccDataSourceKibanaIndexLogz(dataSource string) resource.TestCheckFunc 
 
 		a := r.Primary.Attributes
 
-		expectedTitle := "[logz-"
+		expectedTitle := "[logzio"
 		if !strings.HasPrefix(a["title"], expectedTitle) {
 			return fmt.Errorf("expected kibana index title start with %s actual %s", expectedTitle, a["title"])
 		}
@@ -87,7 +87,7 @@ func testAccDataSourceKibanaIndexLogz(dataSource string) resource.TestCheckFunc 
 
 const testAccDataSourceKibanaConfig = `
 data "kibana_index" "basic" {
-	filter = {
+	filter {
 		name = "title"
 		values = ["logstash-*"]
 	}
@@ -96,7 +96,7 @@ data "kibana_index" "basic" {
 
 const testAccDataSourceKibanaConfigLogzio = `
 data "kibana_index" "basic" {
-	filter = {
+	filter {
 		name = "id"
 		values = ["[logzioCustomerIndex]YYMMDD"]
 	}

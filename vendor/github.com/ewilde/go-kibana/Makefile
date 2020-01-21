@@ -4,6 +4,7 @@ TEST?=$$(go list ./... |grep -v 'vendor')
 GOFMT_FILES?=$$(find . -name '*.go' |grep -v vendor)
 $(eval REMAINDER := $$$(ELK_VERSION))
 MAIN_VERSION := $(shell echo $(ELK_VERSION) | head -c 3)
+GO111MODULE := off
 
 default: build test
 
@@ -41,7 +42,7 @@ docker-build:
 		exit 1; \
 	fi
 	@if [ "$(KIBANA_TYPE)" = "KibanaTypeVanilla" ]; then \
-		cd docker/elasticsearch && docker build --build-arg ELK_VERSION=$(ELK_VERSION) --build-arg ELK_PACK=$(ELK_PACK) . -t elastic-local:$(ELK_VERSION); \
+		cd docker/elasticsearch && docker build --no-cache --build-arg ELK_VERSION=$(ELK_VERSION) --build-arg MAKELOGS_VERSION=$(MAKELOGS_VERSION) --build-arg ELK_PACK=$(ELK_PACK) . -t elastic-local:$(ELK_VERSION); \
 	fi
 
 kibana-start: docker-build
